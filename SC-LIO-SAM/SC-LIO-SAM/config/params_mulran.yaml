@@ -20,7 +20,7 @@ lio_sam:
   
   # Export settings
   savePCD: true                              # https://github.com/TixiaoShan/LIO-SAM/issues/3
-  savePCDDirectory: "/home/rdcas/dataset/mulran-dataset/map"  # use global path, and end with "/" 
+  savePCDDirectory: "/media/data/MulRan_dataset/map/sc_lio_sam1/"  # use global path, and end with "/" 
     # warning: if you have already data in the above savePCDDirectory, it will all remove and remake them. Thus, backup is recommended if pre-made data exist. 
 
   # Sensor Settings

@@ -20,6 +20,8 @@
 
 #include "Scancontext.h"
 
+#include <std_msgs/String.h>
+
 
 using namespace gtsam;
 
@@ -113,6 +115,8 @@ public:
     ros::Subscriber subCloud;
     ros::Subscriber subGPS;
     ros::Subscriber subLoop;
+
+    ros::Subscriber subSaveCmd;
 
     std::deque<nav_msgs::Odometry> gpsQueue;
     lio_sam::cloud_info cloudInfo;
@@ -227,7 +231,7 @@ public:
         subCloud = nh.subscribe<lio_sam::cloud_info>("lio_sam/feature/cloud_info", 1, &mapOptimization::laserCloudInfoHandler, this, ros::TransportHints().tcpNoDelay());
         subGPS   = nh.subscribe<nav_msgs::Odometry> (gpsTopic, 200, &mapOptimization::gpsHandler, this, ros::TransportHints().tcpNoDelay());
         subLoop  = nh.subscribe<std_msgs::Float64MultiArray>("lio_loop/loop_closure_detection", 1, &mapOptimization::loopInfoHandler, this, ros::TransportHints().tcpNoDelay());
-
+        subSaveCmd = nh.subscribe<std_msgs::String>("lio_sam/save_map", 1, &mapOptimization::saveMapHandler, this, ros::TransportHints().tcpNoDelay());
         pubHistoryKeyFrames   = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/mapping/icp_loop_closure_history_cloud", 1);
         pubIcpKeyFrames       = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/mapping/icp_loop_closure_corrected_cloud", 1);
         pubLoopConstraintEdge = nh.advertise<visualization_msgs::MarkerArray>("/lio_sam/mapping/loop_closure_constraints", 1);
@@ -359,6 +363,7 @@ public:
     //     edges_str.emplace_back(curEdgeSaveStream);
     // }
 
+
     void laserCloudInfoHandler(const lio_sam::cloud_infoConstPtr& msgIn)
     {
         // extract time stamp
@@ -477,57 +482,9 @@ public:
             publishGlobalMap();
         }
 
-        if (savePCD == false)
-            return;
-
-        // save pose graph (runs when programe is closing)
-        cout << "****************************************************" << endl; 
-        cout << "Saving the posegraph ..." << endl; // giseop
-
-        for(auto& _line: vertices_str)
-            pgSaveStream << _line << std::endl;
-        for(auto& _line: edges_str)
-            pgSaveStream << _line << std::endl;
-
-        pgSaveStream.close();
-        // pgVertexSaveStream.close();
-        // pgEdgeSaveStream.close();
-
-        const std::string kitti_format_pg_filename {savePCDDirectory + "optimized_poses.txt"};
-        saveOptimizedVerticesKITTIformat(isamCurrentEstimate, kitti_format_pg_filename);
-
-        // save map 
-        cout << "****************************************************" << endl;
-        cout << "Saving map to pcd files ..." << endl;
-        // save key frame transformations
-        pcl::io::savePCDFileASCII(savePCDDirectory + "trajectory.pcd", *cloudKeyPoses3D);
-        pcl::io::savePCDFileASCII(savePCDDirectory + "transformations.pcd", *cloudKeyPoses6D);
-        // extract global point cloud map        
-        pcl::PointCloud<PointType>::Ptr globalCornerCloud(new pcl::PointCloud<PointType>());
-        pcl::PointCloud<PointType>::Ptr globalCornerCloudDS(new pcl::PointCloud<PointType>());
-        pcl::PointCloud<PointType>::Ptr globalSurfCloud(new pcl::PointCloud<PointType>());
-        pcl::PointCloud<PointType>::Ptr globalSurfCloudDS(new pcl::PointCloud<PointType>());
-        pcl::PointCloud<PointType>::Ptr globalMapCloud(new pcl::PointCloud<PointType>());
-        for (int i = 0; i < (int)cloudKeyPoses3D->size(); i++) {
-            *globalCornerCloud += *transformPointCloud(cornerCloudKeyFrames[i],  &cloudKeyPoses6D->points[i]);
-            *globalSurfCloud   += *transformPointCloud(surfCloudKeyFrames[i],    &cloudKeyPoses6D->points[i]);
-            cout << "\r" << std::flush << "Processing feature cloud " << i << " of " << cloudKeyPoses6D->size() << " ...";
-        }
-        // down-sample and save corner cloud
-        downSizeFilterCorner.setInputCloud(globalCornerCloud);
-        downSizeFilterCorner.filter(*globalCornerCloudDS);
-        pcl::io::savePCDFileASCII(savePCDDirectory + "cloudCorner.pcd", *globalCornerCloudDS);
-        // down-sample and save surf cloud
-        downSizeFilterSurf.setInputCloud(globalSurfCloud);
-        downSizeFilterSurf.filter(*globalSurfCloudDS);
-        pcl::io::savePCDFileASCII(savePCDDirectory + "cloudSurf.pcd", *globalSurfCloudDS);
-        // down-sample and save global point cloud map
-        *globalMapCloud += *globalCornerCloud;
-        *globalMapCloud += *globalSurfCloud;
-        pcl::io::savePCDFileASCII(savePCDDirectory + "cloudGlobal.pcd", *globalMapCloud);
-        cout << "****************************************************" << endl;
-        cout << "Saving map to pcd files completed" << endl;
     }
+
+
 
     void publishGlobalMap()
     {
@@ -602,6 +559,61 @@ public:
 
         while (loopInfoVec.size() > 5)
             loopInfoVec.pop_front();
+    }
+
+    void saveMapHandler(const std_msgs::String::ConstPtr& saveMapMsg)
+    {
+    	auto save_path = saveMapMsg->data;
+
+    	savePCDDirectory = save_path;
+
+    	 // save pose graph (runs when programe is closing)
+    	 cout << "****************************************************" << endl;
+    	 cout << "Saving the posegraph ..." << endl; // giseop
+
+    	 for(auto& _line: vertices_str)
+    	     pgSaveStream << _line << std::endl;
+    	 for(auto& _line: edges_str)
+    	     pgSaveStream << _line << std::endl;
+
+    	 pgSaveStream.close();
+    	 // pgVertexSaveStream.close();
+    	 // pgEdgeSaveStream.close();
+
+    	 const std::string kitti_format_pg_filename {savePCDDirectory + "optimized_poses.txt"};
+    	 saveOptimizedVerticesKITTIformat(isamCurrentEstimate, kitti_format_pg_filename);
+
+    	 // save map
+    	 cout << "****************************************************" << endl;
+    	 cout << "Saving map to pcd files ..." << endl;
+    	 // save key frame transformations
+    	 pcl::io::savePCDFileASCII(savePCDDirectory + "trajectory.pcd", *cloudKeyPoses3D);
+    	 pcl::io::savePCDFileASCII(savePCDDirectory + "transformations.pcd", *cloudKeyPoses6D);
+    	 // extract global point cloud map
+    	 pcl::PointCloud<PointType>::Ptr globalCornerCloud(new pcl::PointCloud<PointType>());
+    	 pcl::PointCloud<PointType>::Ptr globalCornerCloudDS(new pcl::PointCloud<PointType>());
+    	 pcl::PointCloud<PointType>::Ptr globalSurfCloud(new pcl::PointCloud<PointType>());
+    	 pcl::PointCloud<PointType>::Ptr globalSurfCloudDS(new pcl::PointCloud<PointType>());
+    	 pcl::PointCloud<PointType>::Ptr globalMapCloud(new pcl::PointCloud<PointType>());
+    	 for (int i = 0; i < (int)cloudKeyPoses3D->size(); i++) {
+    	     *globalCornerCloud += *transformPointCloud(cornerCloudKeyFrames[i],  &cloudKeyPoses6D->points[i]);
+    	     *globalSurfCloud   += *transformPointCloud(surfCloudKeyFrames[i],    &cloudKeyPoses6D->points[i]);
+    	     cout << "\r" << std::flush << "Processing feature cloud " << i << " of " << cloudKeyPoses6D->size() << " ...";
+    	 }
+    	 // down-sample and save corner cloud
+    	 downSizeFilterCorner.setInputCloud(globalCornerCloud);
+    	 downSizeFilterCorner.filter(*globalCornerCloudDS);
+    	 pcl::io::savePCDFileASCII(savePCDDirectory + "cloudCorner.pcd", *globalCornerCloudDS);
+    	 // down-sample and save surf cloud
+    	 downSizeFilterSurf.setInputCloud(globalSurfCloud);
+    	 downSizeFilterSurf.filter(*globalSurfCloudDS);
+    	 pcl::io::savePCDFileASCII(savePCDDirectory + "cloudSurf.pcd", *globalSurfCloudDS);
+    	 // down-sample and save global point cloud map
+    	 *globalMapCloud += *globalCornerCloud;
+    	 *globalMapCloud += *globalSurfCloud;
+    	 pcl::io::savePCDFileASCII(savePCDDirectory + "cloudGlobal.pcd", *globalMapCloud);
+    	 cout << "****************************************************" << endl;
+    	 cout << "Saving map to pcd files completed" << endl;
     }
 
     void performRSLoopClosure()
